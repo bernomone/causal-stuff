@@ -18,5 +18,7 @@ Make it very minimal, with a small description at the beginning of the nb and th
 
 # What to do
 
-1. 01 and 02 uses experimental lalonde data, find observational one and use this only to estimate the real ATT/ATE.
-2. Create a nb that checks the estimated ATT/ATE for matching and double ml methods all together
+1. Create a nb that checks the estimated ATT/ATE for matching and double ml methods all together
+2. Use gower distance for matching
+3. Extend to other datasets: https://github.com/causalNLP/CauSciBench
+4. Use causal discovery to get a graph + use dowhy to estimate ATT
