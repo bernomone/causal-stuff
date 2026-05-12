@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import cdist
+from sklearn.neighbors import NearestNeighbors
 
 
 class MahalanobisMatch:
@@ -183,6 +184,162 @@ class MahalanobisMatch:
 
         control_outcome = self.matched_data_.loc[
             self.matched_data_[self.treatment_col_] == 0, self.outcome_col_
+        ].mean()
+
+        return treated_outcome - control_outcome
+
+
+class PropensityScoreMatch:
+    """
+    Nearest neighbor matching on propensity scores.
+
+    Matches treated units to control units based on similarity of propensity
+    scores (or other score columns). Uses Euclidean distance on the score space.
+
+    Parameters
+    ----------
+    caliper : float or None, default=None
+        Maximum distance for a valid match. Matches exceeding this threshold
+        are dropped. If None, no caliper is applied.
+    replace : bool, default=True
+        Whether to match with replacement. If True, control units can be
+        matched to multiple treated units.
+    ratio : int, default=1
+        Number of control units to match to each treated unit.
+    random_state : int or None, default=None
+        Random state for reproducibility (currently not used, but kept for
+        API consistency with other matching methods).
+
+    Attributes
+    ----------
+    matched_data_ : pd.DataFrame
+        The matched dataset after calling .match()
+    treatment_col_ : str
+        Name of the treatment column
+
+    Examples
+    --------
+    >>> matcher = PropensityScoreMatch(caliper=0.05, replace=True)
+    >>> matched = matcher.match(data, 'treat', ['propensity_score'])
+    >>> att = matcher.estimate_att('outcome')
+    """
+
+    def __init__(
+        self,
+        caliper: float | None = None,
+        replace: bool = True,
+        ratio: int = 1,
+        random_state: int | None = None,
+    ):
+        self.caliper = caliper
+        self.replace = replace
+        self.ratio = ratio
+        self.random_state = random_state
+
+        # Attributes set after matching
+        self.matched_data_ = None
+        self.treatment_col_ = None
+
+    def match(
+        self,
+        data: pd.DataFrame,
+        treatment_col: str,
+        score_cols: list[str],
+    ) -> pd.DataFrame:
+        """
+        Match treated units to control units using nearest neighbors on scores.
+
+        Parameters
+        ----------
+        data : pd.DataFrame
+            Full dataset containing treatment, outcome, and score columns.
+        treatment_col : str
+            Name of the treatment indicator column (boolean or 0/1).
+        score_cols : list of str
+            Names of score columns to use for matching (e.g., propensity scores).
+
+        Returns
+        -------
+        pd.DataFrame
+            Matched dataset containing both treated and control units.
+        """
+        self.treatment_col_ = treatment_col
+
+        # Split into treated and control
+        treated_mask = data[treatment_col] == 1
+        control_mask = ~treated_mask
+
+        treated_data = data[treated_mask].copy()
+        control_data = data[control_mask].copy()
+
+        if len(treated_data) == 0:
+            raise ValueError("No treated units found")
+        if len(control_data) == 0:
+            raise ValueError("No control units found")
+
+        # Extract score matrices
+        X_treated = treated_data[score_cols].values
+        X_control = control_data[score_cols].values
+
+        # Fit nearest neighbors on control units
+        n_neighbors = min(self.ratio, len(control_data))
+        nn = NearestNeighbors(n_neighbors=n_neighbors, metric='euclidean')
+        nn.fit(X_control)
+
+        # Find nearest control neighbors for each treated unit
+        distances, indices = nn.kneighbors(X_treated)
+
+        # Build matched dataset
+        matched_indices = []
+
+        for i, t_idx in enumerate(treated_data.index):
+            for j in range(n_neighbors):
+                dist = distances[i, j]
+                c_array_idx = indices[i, j]
+                c_idx = control_data.index[c_array_idx]
+
+                # Apply caliper if specified
+                if self.caliper is None or dist <= self.caliper:
+                    matched_indices.append(t_idx)
+                    matched_indices.append(c_idx)
+
+        if not matched_indices:
+            raise ValueError(
+                "No matches found within caliper. Try increasing caliper or "
+                "setting it to None."
+            )
+
+        self.matched_data_ = data.loc[matched_indices].copy()
+        return self.matched_data_
+
+    def estimate_att(self, outcome_col: str) -> float:
+        """
+        Estimate the Average Treatment Effect on the Treated (ATT).
+
+        Parameters
+        ----------
+        outcome_col : str
+            Name of the outcome variable column.
+
+        Returns
+        -------
+        float
+            The estimated ATT from the matched sample.
+
+        Raises
+        ------
+        RuntimeError
+            If .match() has not been called yet.
+        """
+        if self.matched_data_ is None:
+            raise RuntimeError("Must call .match() before .estimate_att()")
+
+        treated_outcome = self.matched_data_.loc[
+            self.matched_data_[self.treatment_col_] == 1, outcome_col
+        ].mean()
+
+        control_outcome = self.matched_data_.loc[
+            self.matched_data_[self.treatment_col_] == 0, outcome_col
         ].mean()
 
         return treated_outcome - control_outcome

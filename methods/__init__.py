@@ -1,5 +1,5 @@
 """Causal inference methods for matching and estimation."""
 
-from methods.matching import MahalanobisMatch
+from methods.matching import MahalanobisMatch, PropensityScoreMatch
 
-__all__ = ["MahalanobisMatch"]
+__all__ = ["MahalanobisMatch", "PropensityScoreMatch"]
