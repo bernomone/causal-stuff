@@ -150,14 +150,15 @@ OUTCOME = "lwage"                   # Log wages
 
 ## DAG Falsification Workflow (DoWhy)
 
-The Card notebook demonstrates the two-stage DAG workflow:
+The Card notebook demonstrates the DAG falsification and causal inference workflow:
 
-1. **Propose**: Construct an initial DAG (can include intentional errors for testing)
+1. **Propose**: Construct a causal DAG based on domain knowledge
 2. **Falsify**: Use `dowhy.gcm.falsify.falsify_graph` to test Local Markov Conditions via kernel-based conditional independence tests
-3. **Correct**: Run falsification with `suggestions=True` to test causal minimality and get edge removal suggestions via `apply_suggestions`
-4. **Identify**: Use corrected DAG with DoWhy's `CausalModel.identify_effect()` to find backdoor and IV estimands
-5. **Estimate**: Apply both backdoor (linear regression) and IV (2SLS) methods
-6. **Refute**: Validate estimates with robustness checks
+3. **Identify**: If the DAG is not rejected, use DoWhy's `CausalModel.identify_effect()` to find backdoor and IV estimands
+4. **Estimate**: Apply both backdoor (linear regression) and IV (2SLS) methods
+5. **Refute**: Validate estimates with robustness checks
+
+Note: If the DAG is rejected by falsification tests, causal minimality suggestions can be obtained by re-running `falsify_graph` with `suggestions=True`, then applying corrections via `apply_suggestions`.
 
 **NetworkX 3.x compatibility**: Current notebooks patch `nx.d_separated` for DoWhy 0.12 compatibility:
 ```python
