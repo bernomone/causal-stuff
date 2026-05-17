@@ -42,10 +42,13 @@ jupyter nbconvert --execute --to notebook notebooks/01_lalonde_psm.ipynb
 ```
 causal-stuff/
 ├── datasets/           # Dataset loaders with caching
-│   └── lalonde.py     # LaLonde/Dehejia-Wahba NSW dataset
+│   ├── lalonde.py     # LaLonde/Dehejia-Wahba NSW dataset (matching/metalearners)
+│   └── card.py        # Card (1995) proximity-to-college dataset (IV estimation)
 ├── methods/            # Reusable matching/estimation implementations
 │   └── matching.py    # MahalanobisMatch, PropensityScoreMatch classes
-├── notebooks/          # Experimental notebooks (numbered by workflow)
+├── notebooks/          # Experimental notebooks (organized by dataset)
+│   ├── lalonde/       # LaLonde dataset experiments (PSM, matching, metalearners)
+│   └── card_proximity/# Card dataset experiments (DAG falsification, IV estimation)
 ├── data/               # Cached dataset files (git-ignored)
 └── pyproject.toml      # Dependencies and project metadata
 ```
@@ -54,11 +57,18 @@ causal-stuff/
 
 ### Dataset Loading Pattern
 
-The `datasets/` module provides cached loaders that download data from canonical sources on first access and store locally in `data/`. Each dataset loader exposes:
-- **Experimental data**: For computing true treatment effects (ground truth)
-- **Observational data**: Semi-observational variants with selection bias for testing methods
+The `datasets/` module provides cached loaders that download data from canonical sources on first access and store locally in `data/`. Dataset loaders follow two patterns:
 
-Example: `LalondeDataset` provides `.experimental` (RCT data) and `.observational(control=ControlGroup.PSID)` (experimental treated + non-experimental control).
+**1. Experimental/Observational pattern (LaLonde)**:
+- **Experimental data**: RCT data for computing true treatment effects (ground truth)
+- **Observational data**: Semi-observational variants with selection bias for testing methods
+- Example: `LalondeDataset` provides `.experimental` (RCT data) and `.observational(control=ControlGroup.PSID)` (experimental treated + non-experimental control)
+
+**2. Instrumental variable pattern (Card)**:
+- **Full data**: All observations with potential missing values in some covariates
+- **Complete cases**: Subset with no missing values on key DAG variables
+- Example: `CardDataset` provides `.data` (N=3,010) and `.complete_family` (~N=2,215) with complete family background variables
+- Exposes column groups: `INSTRUMENTS`, `TREATMENT`, `OUTCOME`, `DAG_COLUMNS`, `EXCLUDED_DETERMINISTIC`
 
 ### Matching Methods Module
 
@@ -70,15 +80,31 @@ Both follow a `.match()` → `.estimate_att()` API pattern.
 
 ### Notebook Workflow
 
-Notebooks are numbered sequentially by analysis flow:
+Notebooks are organized by dataset and numbered sequentially within each directory:
+
+**LaLonde notebooks** (`notebooks/lalonde/`):
 1. `01_lalonde_psm.ipynb` - Propensity score matching baseline
 2. `02_lalonde_covariate_matching.ipynb` - Direct covariate matching (Mahalanobis)
 3. `03_lalonde_metalearners.ipynb` - Metalearner comparison (S/T/X-learners)
+4. `04_lalonde_dag_falsification.ipynb` - DAG-based causal discovery
+5. `05_lalonde_dowhy_backdoor.ipynb` - DoWhy backdoor estimation
+6. `05b_lalonde_dowhy_mahalanobis.ipynb` - DoWhy with Mahalanobis matching
 
-Each notebook:
+Standard workflow:
 - Loads data via `datasets.lalonde.LalondeDataset`
 - Estimates ATT using one or more methods
 - Compares against `ds.true_att` to evaluate bias
+
+**Card notebooks** (`notebooks/card_proximity/`):
+1. `01_card_dag_falsification_iv.ipynb` - DAG falsification + IV estimation
+
+Workflow:
+- Proposes an initial DAG (deliberately imperfect with exclusion restriction violations)
+- Runs `falsify_graph` to detect LMC violations and get edge removal suggestions
+- Applies suggestions to correct the DAG (removes spurious edges, validates IV exclusion restriction)
+- Identifies causal effects via both backdoor adjustment and instrumental variables
+- Estimates returns to education using OLS and 2SLS, compares to Card (1995) reference results
+- Validates with refutation checks
 
 ## Testing Causal Methods
 
@@ -89,7 +115,9 @@ When adding new methods or datasets:
 3. **Compare multiple control groups**: PSID, PSID2, PSID3, CPS variants have different degrees of covariate imbalance
 4. **Report bias**: `estimated_att - ds.true_att`
 
-## Common Covariates (LaLonde)
+## Dataset-Specific Notes
+
+### LaLonde Dataset
 
 Standard covariate set for matching:
 ```python
@@ -100,9 +128,46 @@ covariates = ['age', 'educ', 'black', 'hisp', 'married', 'nodegr', 're74', 're75
 - `re78`: Outcome variable (1978 earnings)
 - `treat`: Treatment indicator (job training program)
 
-## Next Steps (from description.md)
+### Card Dataset
+
+Key variables for IV estimation:
+```python
+INSTRUMENTS = ["nearc2", "nearc4"]  # Proximity to 2-year/4-year college
+TREATMENT = "educ"                  # Years of education
+OUTCOME = "lwage"                   # Log wages
+```
+
+**DAG columns** (12 variables with complete cases):
+- Instruments: `nearc2`, `nearc4`
+- Treatment/outcome: `educ`, `lwage`
+- Demographics: `age`, `black`, `married`
+- Geography: `south`, `smsa` (metropolitan area)
+- Family background: `fatheduc`, `motheduc`, `momdad14` (lived with both parents at 14)
+
+**Reference**: Card, D. (1995). "Using Geographic Variation in College Proximity to Estimate the Return to Schooling." NBER Working Paper No. 4483.
+
+**Card's results**: OLS return ~7.3%, IV return ~12-13% (IV > OLS suggests measurement error or LATE for high-return compliers)
+
+## DAG Falsification Workflow (DoWhy)
+
+The Card notebook demonstrates the two-stage DAG workflow:
+
+1. **Propose**: Construct an initial DAG (can include intentional errors for testing)
+2. **Falsify**: Use `dowhy.gcm.falsify.falsify_graph` to test Local Markov Conditions via kernel-based conditional independence tests
+3. **Correct**: Run falsification with `suggestions=True` to test causal minimality and get edge removal suggestions via `apply_suggestions`
+4. **Identify**: Use corrected DAG with DoWhy's `CausalModel.identify_effect()` to find backdoor and IV estimands
+5. **Estimate**: Apply both backdoor (linear regression) and IV (2SLS) methods
+6. **Refute**: Validate estimates with robustness checks
+
+**NetworkX 3.x compatibility**: Current notebooks patch `nx.d_separated` for DoWhy 0.12 compatibility:
+```python
+nx.algorithms.d_separated = nx.algorithms.d_separation.is_d_separator
+nx.d_separated = nx.algorithms.d_separation.is_d_separator
+```
+
+## Next Steps
 
 Planned extensions:
 1. Implement Gower distance for mixed-type covariate matching
 2. Add datasets from CauSciBench (https://github.com/causalNLP/CauSciBench)
-3. Integrate causal discovery: learn graph → estimate ATT with DoWhy
+3. Extend DAG falsification workflow to LaLonde dataset

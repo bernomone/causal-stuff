@@ -1,5 +1,6 @@
-"""LaLonde dataset loader for causal inference experiments."""
+"""Dataset loaders for causal inference experiments."""
 
-from datasets.lalonde import LalondeDataset, ControlGroup
+from datasets.card import CardDataset
+from datasets.lalonde import ControlGroup, LalondeDataset
 
-__all__ = ["LalondeDataset", "ControlGroup"]
+__all__ = ["LalondeDataset", "ControlGroup", "CardDataset"]
