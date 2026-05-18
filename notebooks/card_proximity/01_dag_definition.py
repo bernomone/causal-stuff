@@ -47,10 +47,10 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+import functools
 import networkx as nx
 import matplotlib.pyplot as plt
-from dowhy.gcm.falsify import falsify_graph
-from dowhy.gcm.falsify import apply_suggestions
+from dowhy.gcm.falsify import falsify_graph, apply_suggestions
 from dowhy.gcm.independence_test import approx_kernel_based
 from datasets import CardDataset
 
@@ -145,13 +145,16 @@ has_direct_path = nx.has_path(dag_no_educ, 'nearc4', 'lwage')
 print(f"{has_direct_path} (should be False for valid IV)")
 
 
+approx_kernel_based_resc = functools.partial(approx_kernel_based, scale_data=True)
+
 
 # Run falsification test (this may take 20-30 minutes with 12 nodes and 2215 rows)
 result = falsify_graph(
     dag,
     dag_data,
-    conditional_independence_test=approx_kernel_based,  # MUCH faster than kernel
-    n_jobs=10, 
+    independence_test=approx_kernel_based_resc,
+    conditional_independence_test=approx_kernel_based_resc,  # MUCH faster than kernel
+    n_jobs=10,
     show_progress_bar=True,
     suggestions=True,  # Enable causal minimality testing
 )
@@ -179,6 +182,8 @@ if corrected_dag.number_of_edges() < dag.number_of_edges():
     corrected_result = falsify_graph(
         corrected_dag,
         dag_data,
+        independence_test=approx_kernel_based_resc,
+        conditional_independence_test=approx_kernel_based_resc,
         n_jobs=10,
         show_progress_bar=True,
     )
